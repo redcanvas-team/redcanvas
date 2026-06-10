@@ -802,7 +802,7 @@ async function readDoc(docId){
 
   // 1) 파일 형식 확인
   let metaResp;
-  try{ metaResp=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?fields=mimeType,name&key=${k}`); }
+  try{ metaResp=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?fields=mimeType,name&supportsAllDrives=true&key=${k}`); }
   catch(e){ throw new Error('네트워크 오류로 원고를 읽지 못했습니다. 인터넷 연결을 확인해주세요.'); }
   if(!metaResp.ok){
     if(metaResp.status===403) throw new Error('원고 접근 거부(403). 문서가 "링크가 있는 모든 사용자"(뷰어 또는 편집자)로 공유됐는지, API 키 제한(리퍼러/Drive API)이 올바른지 확인해주세요.');
@@ -815,12 +815,12 @@ async function readDoc(docId){
 
   if(meta.mimeType==='application/vnd.google-apps.document'){
     // 2-a) 순수 구글독스 → 텍스트로 내보내기
-    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain&key=${k}`);
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain&supportsAllDrives=true&key=${k}`);
     if(!r.ok) throw new Error('원고 읽기 실패('+r.status+'). 공유 설정을 확인해주세요.');
     text=await r.text();
   }else if(meta.mimeType==='application/vnd.openxmlformats-officedocument.wordprocessingml.document'){
     // 2-b) 워드(.docx) 파일 → 원본 다운로드 후 텍스트 추출
-    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?alt=media&key=${k}`);
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?alt=media&supportsAllDrives=true&key=${k}`);
     if(!r.ok) throw new Error('워드 파일 다운로드 실패('+r.status+'). 공유 설정을 확인해주세요.');
     const buf=await r.arrayBuffer();
     try{
