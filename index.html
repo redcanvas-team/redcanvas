@@ -252,6 +252,7 @@ body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;background:#f5
 .ld-prog{width:220px;background:#e8e4dc;border-radius:20px;height:4px;overflow:hidden}
 .ld-bar{height:4px;background:#e8342a;border-radius:20px;width:0%;transition:width .4s}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 </head>
 <body>
 
@@ -370,7 +371,7 @@ body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;background:#f5
       2. "API 및 서비스" → 라이브러리에서 <b>Google Drive API</b> 사용 설정<br>
       3. "사용자 인증 정보" → API 키 만들기 → 복사해서 여기에 붙여넣기<br>
       4. (권장) 키 제한: HTTP 리퍼러에 배포 도메인 등록, API 제한은 Drive API만<br><br>
-      ※ 검수할 구글독스는 <b>"링크가 있는 모든 사용자 — 뷰어"</b>로 공유돼 있어야 합니다.
+      ※ 검수할 문서는 <b>"링크가 있는 모든 사용자"</b>(뷰어 또는 편집자)로 공유돼 있어야 하며, 구글독스 문서와 워드(.docx) 파일을 모두 지원합니다.
     </div>
     <div class="set-row">
       <button class="set-btn set-cancel" onclick="closeSettings()">닫기</button>
@@ -797,17 +798,39 @@ function saveGKey(){
 async function readDoc(docId){
   const key=getGKey();
   if(!key){ openSettings(); throw new Error('Google API 키가 설정되지 않았습니다. 우측 상단 ⚙ 버튼에서 키를 등록해주세요.'); }
-  const url=`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain&key=${encodeURIComponent(key)}`;
-  let resp;
-  try{ resp=await fetch(url); }
+  const k=encodeURIComponent(key);
+
+  // 1) 파일 형식 확인
+  let metaResp;
+  try{ metaResp=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?fields=mimeType,name&key=${k}`); }
   catch(e){ throw new Error('네트워크 오류로 원고를 읽지 못했습니다. 인터넷 연결을 확인해주세요.'); }
-  if(!resp.ok){
-    if(resp.status===403) throw new Error('원고 접근 거부(403). 문서가 "링크가 있는 모든 사용자 — 뷰어"로 공유됐는지, API 키 제한(리퍼러/Drive API)이 올바른지 확인해주세요.');
-    if(resp.status===404) throw new Error('문서를 찾을 수 없습니다(404). 구글독스 링크가 올바른지 확인해주세요.');
-    if(resp.status===400) throw new Error('API 키가 올바르지 않습니다(400). ⚙ 설정에서 키를 다시 확인해주세요.');
-    throw new Error('원고 읽기 실패('+resp.status+')');
+  if(!metaResp.ok){
+    if(metaResp.status===403) throw new Error('원고 접근 거부(403). 문서가 "링크가 있는 모든 사용자"(뷰어 또는 편집자)로 공유됐는지, API 키 제한(리퍼러/Drive API)이 올바른지 확인해주세요.');
+    if(metaResp.status===404) throw new Error('문서를 찾을 수 없습니다(404). 링크가 올바른지, "링크가 있는 모든 사용자"로 공유됐는지 확인해주세요.');
+    if(metaResp.status===400) throw new Error('API 키가 올바르지 않습니다(400). ⚙ 설정에서 키를 다시 확인해주세요.');
+    throw new Error('원고 정보 조회 실패('+metaResp.status+')');
   }
-  const text=await resp.text();
+  const meta=await metaResp.json();
+  let text='';
+
+  if(meta.mimeType==='application/vnd.google-apps.document'){
+    // 2-a) 순수 구글독스 → 텍스트로 내보내기
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain&key=${k}`);
+    if(!r.ok) throw new Error('원고 읽기 실패('+r.status+'). 공유 설정을 확인해주세요.');
+    text=await r.text();
+  }else if(meta.mimeType==='application/vnd.openxmlformats-officedocument.wordprocessingml.document'){
+    // 2-b) 워드(.docx) 파일 → 원본 다운로드 후 텍스트 추출
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${docId}?alt=media&key=${k}`);
+    if(!r.ok) throw new Error('워드 파일 다운로드 실패('+r.status+'). 공유 설정을 확인해주세요.');
+    const buf=await r.arrayBuffer();
+    try{
+      const res=await window.mammoth.extractRawText({arrayBuffer:buf});
+      text=res.value;
+    }catch(e){ throw new Error('워드 파일에서 텍스트를 추출하지 못했습니다: '+e.message); }
+  }else{
+    throw new Error(`지원하지 않는 파일 형식입니다 (${meta.mimeType||'알 수 없음'}). 구글독스 문서 또는 워드(.docx) 파일만 검수할 수 있습니다.`);
+  }
+
   if(!text||text.trim().length<30) throw new Error('원고 내용이 비어 있습니다. 문서에 내용이 있는지 확인해주세요.');
   return text.trim();
 }
